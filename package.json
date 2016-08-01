@@ -1,6 +1,6 @@
 {
   "name": "redis-suspend",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Redis wrapper adding suspend module support.",
   "main": "RedisSuspend",
   "dependencies": {},
