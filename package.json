@@ -1,0 +1,22 @@
+{
+  "name": "redis-suspend",
+  "version": "0.0.1",
+  "description": "Redis wrapper adding suspend module support.",
+  "main": "RedisSuspend",
+  "dependencies": {},
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/phanxgames/redis-suspend.git"
+  },
+  "keywords": [
+    "es6",
+    "redis",
+    "suspend",
+    "yield",
+    "async"
+  ],
+  "bugs": {
+    "url": "https://github.com/phanxgames/redis-suspend/issues"
+  }
+}
