@@ -1,9 +1,12 @@
 {
   "name": "redis-suspend",
-  "version": "0.0.2",
-  "description": "Redis wrapper adding suspend module support.",
+  "version": "0.1.0",
+  "description": "Redis wrapper with suspend module support allowing generator/yield async control flow.",
   "main": "RedisSuspend",
-  "dependencies": {},
+  "dependencies": {
+    "suspend":"jmar777/suspend",
+    "redis":"NodeRedis/node_redis"
+  },
   "devDependencies": {},
   "repository": {
     "type": "git",
