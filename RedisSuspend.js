@@ -36,7 +36,72 @@ class RedisSuspend {
             "multi": () => {
                 return new MultiProxy(this, target.client.multi())
             },
-             "getSearch": (search,cbIterator,cbFinal) => {
+            "getDefault": (key,defaultValue) => {
+
+                target.initHandleCallback();
+
+                target.client.get(key,function(err,result) {
+                    if (err) {
+                        target.handleCallback(null,null, null);
+                        return;
+                    }
+
+                    if (result==null) {
+                        target.handleCallback(null, null, defaultValue);
+                        return;
+                    }
+
+                    target.handleCallback(null, null, result);
+
+                });
+
+            },
+            "setJson": (key,obj) => {
+                target.initHandleCallback();
+
+                let json = null;
+
+                try {
+                    json = JSON.stringify(obj);
+                } catch(e) {
+                    json = null;
+                }
+
+                target.client.set(key,json, function(err, result) {
+                    target.handleCallback(null,null,null);
+                });
+            },
+            "getJson": (key) => {
+
+                target.initHandleCallback();
+
+                target.client.get(key,function(err,result) {
+                    if (err) {
+                        target.handleCallback(null,null,null);
+                        return;
+                    }
+
+                    if (result==null) {
+                        target.handleCallback(null,null,null);
+                        return;
+                    }
+
+                    try {
+                        var obj = JSON.parse(result);
+                        target.handleCallback(null,null,obj);
+                        return;
+                    } catch (e) {
+                        target.handleCallback(null,null,null);
+                        return;
+                    }
+                    target.handleCallback(null,null,null);
+                    return;
+
+                });
+
+
+            },
+            "getSearch": (search,cbIterator,cbFinal) => {
 
                 target.initHandleCallback();
 
@@ -74,8 +139,6 @@ class RedisSuspend {
                     });
                 }
                 searchStep();
-
-
 
 
                 function loopNext() {
@@ -257,22 +320,6 @@ module.exports = RedisSuspend;
 let redis = require("redis");
 
 
-/*
-//TODO //IDEA
-
- multi = client.multi();
- multi.incr("incr thing", redis.print);
- multi.incr("incr other thing", redis.print);
- multi.exec(function (err, replies) {
-    console.log(replies); // 101, 2
- });
-
- We can try to wrap the multi object that is returned with a second proxy,
- and then allow the multi also support the generator/yield async control flow.
-
-
-
- */
 
 class MultiProxy {
 

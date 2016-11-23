@@ -20,6 +20,15 @@ suspend(function*() {
 
 	console.log("starting test...");
 
+	yield rs.setJson("testObj",{foo:"bar"});
+
+	let obj = yield rs.getJson("testObj");
+
+	console.log(obj.foo);
+
+	return;
+
+
 	//set a key and wait until async operation is complete
 	yield rs.set("key","test");
 	console.log("set key!");

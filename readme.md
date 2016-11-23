@@ -53,7 +53,44 @@ suspend(function*() {
 
 ### Helper Methods exclusive to this module:
 
-#### getSearch
+
+#### getDefault(key,defaultValue)
+
+Just like the standard .get(key) method, but instead will allow you to provide a default value if the key is not found or is null.
+
+<pre>
+let value = yield rs.getDefault("undefined key","not found");
+console.log(value); //outputs "not found"
+</pre>
+
+
+#### getJson(key)
+
+Will attempt to automatically parse the JSON and return the object.
+
+<pre>
+yield rs.set("an object",JSON.stringify({foo:"bar"}));
+
+let obj = yield rs.getJson("an object");
+console.log(obj.foo); //outputs: "bar"
+</pre>
+
+
+#### setJson(key, object)
+
+Will attempt to convert passed in object to JSON and save to key.
+
+<pre>
+yield rs.setJson("key",{foo:"bar"});
+
+// .. later ..
+
+let obj = yield rs.getJson("key");
+console.log(obj.foo); //outputs: "bar"
+</pre>
+
+
+#### getSearch(key, callback(key,value,cbnext) )
 
 This method allows you to loop over key/values that match your search criteria.
 Internally it uses the SCAN redis command.
@@ -75,14 +112,14 @@ Internally it uses the SCAN redis command.
 	console.log("search complete");
 </pre>
 
-#### delSearch
+#### delSearch(key)
 
 This method is similar to the getSearch method, but instead of allowing you to loop
 through the results, it deletes them, and then returns the delete count.
 
 <pre>
 	var delcount = yield rs.delSearch("chara_*");
-	console.log("deleted",delcount,"keys");
+	console.log("deleted " + delcount + " keys");
 </pre>
 
 
