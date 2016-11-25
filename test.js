@@ -26,7 +26,6 @@ suspend(function*() {
 
 	console.log(obj.foo);
 
-	return;
 
 
 	//set a key and wait until async operation is complete

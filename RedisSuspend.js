@@ -1,424 +1,483 @@
 
 class RedisSuspend {
 
+
     constructor(resume,config) {
 
-        this.target = {
-            client: redis.createClient(config),
-            resume: resume,
-            resume_next: null,
-            last_error: null,
-            proxy: null
-        };
+        let client = redis.createClient(config);
 
-        let target = this.target;
+        Object.defineProperty(client, "__private__", {
+            value: {},
+            enumerable: false
+        });
 
-        this.target.initHandleCallback = () => {
-            if (target.resume)
-                target.resume_next = target.resume();
-            else
-                target.resume_next = null;
-        };
-        this.target.handleCallback = (cb, ...args) => {
-            if (args!=null && args.length>=1 && args[0]!=null) {
-                target.last_error = args[0];
-            } else {
-                target.last_error = null;
+        let self = client.__private__;
+
+        self.client = client;
+        self.resume = resume;
+        self.resume_next = null;
+        self.last_error = null;
+
+
+        this.__setupMethods(client,this);
+
+        return client;
+    }
+
+
+    getDefault(key,defaultValue,cb) {
+
+        this._initHandleCallback();
+
+        this.get(key, (err,result) => {
+            if (err) {
+                this._handleCallback(cb,null, null);
+                return;
             }
-            if (cb)
-                cb(...args, target.resume_next);
-            else if (target.resume_next)
-                target.resume_next(...args);
-        };
 
-        target.methods = {
-            "client": target.client,
-            "multi": () => {
-                return new MultiProxy(this, target.client.multi())
-            },
-            "getDefault": (key,defaultValue) => {
-
-                target.initHandleCallback();
-
-                target.client.get(key,function(err,result) {
-                    if (err) {
-                        target.handleCallback(null,null, null);
-                        return;
-                    }
-
-                    if (result==null) {
-                        target.handleCallback(null, null, defaultValue);
-                        return;
-                    }
-
-                    target.handleCallback(null, null, result);
-
-                });
-
-            },
-            "setJson": (key,obj) => {
-                target.initHandleCallback();
-
-                let json = null;
-
-                try {
-                    json = JSON.stringify(obj);
-                } catch(e) {
-                    json = null;
-                }
-
-                target.client.set(key,json, function(err, result) {
-                    target.handleCallback(null,null,null);
-                });
-            },
-            "getJson": (key) => {
-
-                target.initHandleCallback();
-
-                target.client.get(key,function(err,result) {
-                    if (err) {
-                        target.handleCallback(null,null,null);
-                        return;
-                    }
-
-                    if (result==null) {
-                        target.handleCallback(null,null,null);
-                        return;
-                    }
-
-                    try {
-                        var obj = JSON.parse(result);
-                        target.handleCallback(null,null,obj);
-                        return;
-                    } catch (e) {
-                        target.handleCallback(null,null,null);
-                        return;
-                    }
-                    target.handleCallback(null,null,null);
-                    return;
-
-                });
-
-
-            },
-            "getSearch": (search,cbIterator,cbFinal) => {
-
-                target.initHandleCallback();
-
-                let cursor = 0;
-                let results = [];
-
-                let counter;
-                let len;
-
-                function searchStep() {
-                    target.client.scan(cursor,"MATCH",search, (err,reply) => {
-
-                        if (err) {
-                            target.handleCallback(cbFinal,err);
-                            return;
-                        }
-                        if (reply==null || reply.length!=2) {
-                            target.handleCallback(cbFinal,new Error("No reply"));
-                            return;
-                        }
-
-                        results = results.concat(reply[1]);
-
-                        if (reply[0]!=0) {
-                            //not done, keep going!!
-                            cursor = reply[0];
-                            searchStep();
-                        } else {
-                            //done
-                            counter = 0;
-                            len = results.length;
-                            loopStep();
-                        }
-
-                    });
-                }
-                searchStep();
-
-
-                function loopNext() {
-                    if (counter < len) {
-                        process.nextTick(loopStep);
-                    } else {
-                        target.handleCallback(cbFinal);
-                        return;
-                    }
-                }
-                function loopStep() {
-                    if (counter < len ) {
-                        let key = results[counter++];
-
-                        target.client.get(key,function(err,result) {
-                            if (err) {
-                                target.handleCallback(cbFinal,err);
-                                return;
-                            }
-
-                            if (cbIterator(key, result, loopNext) == false) {
-                                target.handleCallback(cbFinal);
-                                return;
-                            }
-                        });
-                    } else {
-                        target.handleCallback(cbFinal);
-                        return;
-                    }
-                }
-
-
-            },
-            "delSearch": (search,cbFinal) => {
-                target.initHandleCallback();
-
-                let cursor = 0;
-                let results = [];
-
-                let counter;
-                let len;
-                let delCount = 0;
-
-                function searchStep() {
-                    target.client.scan(cursor,"MATCH",search, (err,reply) => {
-
-                        if (err) {
-                            target.handleCallback(cbFinal,err);
-                            return;
-                        }
-                        if (reply==null || reply.length!=2) {
-                            target.handleCallback(cbFinal,new Error("No reply"));
-                            return;
-                        }
-
-                        results = results.concat(reply[1]);
-
-                        if (reply[0]!=0) {
-                            //not done, keep going!!
-                            cursor = reply[0];
-                            searchStep();
-                        } else {
-                            //done
-                            counter = 0;
-                            len = results.length;
-                            loopStep();
-                        }
-
-                    });
-                }
-                searchStep();
-
-                function loopNext() {
-                    if (counter < len) {
-                        process.nextTick(loopStep);
-                    } else {
-                        target.handleCallback(cbFinal,null,delCount);
-                        return;
-                    }
-                }
-                function loopStep() {
-                    if (counter < len ) {
-                        let key = results[counter++];
-
-                        target.client.del(key,function(err,result) {
-                            if (err) {
-                                target.handleCallback(cbFinal,err);
-                                return;
-                            }
-                            delCount+=result;
-                            loopNext();
-                        });
-                    } else {
-                        target.handleCallback(cbFinal,null,delCount);
-                        return;
-                    }
-                }
-
+            if (result==null) {
+                this._handleCallback(cb, null, defaultValue);
+                return;
             }
-        };
 
-        this.handler = {
-            get: this._getHandler,
-            set: this._setHandler
-        };
+            this._handleCallback(cb, null, result);
 
-        target.proxy = new Proxy(this.target,this.handler);
-        return target.proxy;
+
+        });
 
     }
 
-    //-------------------------------------------------------
-    // Proxy Handlers
-    //-------------------------------------------------------
+    setJson(key,obj,cb) {
 
-    _getHandler(target,key) {
+        this._initHandleCallback();
 
-        if (target.methods.hasOwnProperty(key))
-            return target.methods[key];
+        let json = null;
 
-        return (...args) => {
-           // console.log("key",key);
-           // console.log("Args",args);
+        try {
+            json = JSON.stringify(obj);
+        } catch(e) {
+            json = null;
+        }
 
+        this.set(key,json, (err, result) => {
+            this._handleCallback(cb,err,null);
+        });
+
+    }
+
+    getJson(key,cb) {
+
+        this._initHandleCallback();
+
+        this.get(key,(err,result)  => {
+            if (err) {
+                this._handleCallback(cb,null,null);
+                return;
+            }
+
+            if (result==null) {
+
+                this._handleCallback(cb,null,null);
+                return;
+            }
 
             try {
-                target.initHandleCallback();
-            } catch (err) {
+                var obj = JSON.parse(result);
+
+                this._handleCallback(cb,null,obj);
+                return;
+            } catch (e) {
 
             }
 
-            let argLength = 0;
-            if (args!=null) argLength = args.length;
+            this._handleCallback(cb,null,null);
 
-            let lastArgReplaced = false;
-            /*
-            Replace last arg if it is a function, and wrap it with our
-            handleCallback so it may go through suspend.
-             */
-            if (argLength>=1) {
-                let lastArg = args[argLength - 1];
-                if (lastArg != null && typeof(lastArg) === "function") {
-                    lastArgReplaced = true;
-                    args[argLength - 1] = (...innerargs) => {
-                       target.handleCallback(lastArg, ...innerargs);
+        });
+    }
+
+    getSearch(search,cbIterator,cbFinal) {
+
+        let self = this;
+
+        this._initHandleCallback();
+
+        let cursor = 0;
+        let results = [];
+
+        let counter;
+        let len;
+
+        function searchStep() {
+            self.scan(cursor,"MATCH",search, (err,reply) => {
+
+                if (err) {
+                    self._handleCallback(cbFinal,err);
+                    return;
+                }
+                if (reply==null || reply.length!=2) {
+                    self._handleCallback(cbFinal,new Error("No reply"));
+                    return;
+                }
+
+                results = results.concat(reply[1]);
+
+                if (reply[0]!=0) {
+                    //not done, keep going!!
+                    cursor = reply[0];
+                    searchStep();
+                } else {
+                    //done
+                    counter = 0;
+                    len = results.length;
+                    loopStep();
+                }
+
+            });
+        }
+        searchStep();
+
+
+        function loopNext() {
+            if (counter < len) {
+                process.nextTick(loopStep);
+            } else {
+                self._handleCallback(cbFinal);
+                return;
+            }
+        }
+        function loopStep() {
+            if (counter < len ) {
+                let key = results[counter++];
+
+                self.get(key,function(err,result) {
+                    if (err) {
+                        self._handleCallback(cbFinal,err);
+                        return;
                     }
+
+                    if (cbIterator(key, result, loopNext) == false) {
+                        self._handleCallback(cbFinal);
+                        return;
+                    }
+                });
+            } else {
+                self._handleCallback(cbFinal);
+                return;
+            }
+        }
+
+
+
+    }
+
+
+    delSearch(search,cbFinal) {
+        this._initHandleCallback();
+
+        let self = this;
+
+        let cursor = 0;
+        let results = [];
+
+        let counter;
+        let len;
+        let delCount = 0;
+
+        function searchStep() {
+            self.scan(cursor,"MATCH",search, (err,reply) => {
+
+                if (err) {
+                    self._handleCallback(cbFinal,err);
+                    return;
+                }
+                if (reply==null || reply.length!=2) {
+                    self._handleCallback(cbFinal,new Error("No reply"));
+                    return;
+                }
+
+                results = results.concat(reply[1]);
+
+                if (reply[0]!=0) {
+                    //not done, keep going!!
+                    cursor = reply[0];
+                    searchStep();
+                } else {
+                    //done
+                    counter = 0;
+                    len = results.length;
+                    loopStep();
+                }
+
+            });
+        }
+        searchStep();
+
+        function loopNext() {
+            if (counter < len) {
+                process.nextTick(loopStep);
+            } else {
+                self._handleCallback(cbFinal,null,delCount);
+                return;
+            }
+        }
+        function loopStep() {
+            if (counter < len ) {
+                let key = results[counter++];
+
+                self.del(key,function(err,result) {
+                    if (err) {
+                        self._handleCallback(cbFinal,err);
+                        return;
+                    }
+                    delCount+=result;
+                    loopNext();
+                });
+            } else {
+                self._handleCallback(cbFinal,null,delCount);
+                return;
+            }
+        }
+
+
+    }
+
+
+    __mapperMethod(client, functionRef, functionName, ...args) {
+
+        //console.log("powerfear:"+functionName);
+
+        if (functionName=="multi" || functionName=="MULTI") {
+            return new MultiRedis(client,functionRef.call(client,...args));
+        }
+
+
+        try {
+            this._initHandleCallback();
+        } catch (e) {
+
+        }
+
+        let argLength = 0;
+        if (args!=null) argLength = args.length;
+
+        let lastArgReplaced = false;
+
+        if (argLength>=1) {
+            let lastArg = args[argLength - 1];
+            if (lastArg != null && typeof(lastArg) === "function") {
+                lastArgReplaced = true;
+                args[argLength - 1] = (...innerargs) => {
+                    this._handleCallback(lastArg, ...innerargs);
                 }
             }
+        }
 
-            //no cb replaced, so add one
-            if (!lastArgReplaced) {
-                args.push((...innerargs) => {
-                  //  console.log("final cb");
-                  //  console.log("inner args",innerargs);
-                    target.handleCallback(null, ...innerargs);
-                });
+        if (!lastArgReplaced) {
+            args.push((...innerargs) => {
+                this._handleCallback(null, ...innerargs);
+            });
+        }
+
+        functionRef.call(client,...args);
+
+    }
+
+
+    __setupMethods(client,obj) {
+
+        client.__private__.clientMulti = client.multi;
+
+        //copy methods from redis (client) class for wrapping
+
+        function setMapping(commandName) {
+            let functionRef = client.__proto__[commandName];
+
+            if (functionRef==null) return;
+
+            let name = functionRef.name;
+            //console.log(name);
+
+            // internal_send_command
+            if (typeof(functionRef) == "function" && name.indexOf("internal")===-1) {
+                client[commandName] = obj.__mapperMethod.bind(client, client, functionRef, name);
+                //console.log(name + " remapped");
             }
+        }
 
-           //console.log("final args",args);
+        //get command list from redis-commands module
+        for (let command of commands.list) {
+            let commandName = command.replace(/(?:^([0-9])|[^a-zA-Z0-9_$])/g, '_$1');
 
-            target.client[key](...args);
+            setMapping(commandName);
 
-        };
+            commandName = commandName.toUpperCase();
+
+            setMapping(commandName);
+        }
+
+
+        //copy methods from our class
+        let arr2 = Object.getOwnPropertyNames(obj.__proto__);
+        for (let item of arr2) {
+            if (item != "constructor" && item.indexOf("__")!==0) {
+                client[item] = obj[item];
+            }
+        }
     }
 
-    _setHandler(target,key,value) {
-
-        if (target.methods.hasOwnProperty(key))
-            throw new Error("Property '"+key+"' is a reserved name and cannot be used.");
-
-        target.client[key] = value;
-        return true;
+    _initHandleCallback() {
+        if (this.__private__.resume)
+            this.__private__.resume_next = this.__private__.resume();
+        else
+            this.__private__.resume_next = null;
     }
+
+    _handleCallback(cb, err, result) {
+        if (err)
+            this.__private__.last_error = err;
+        else
+            this.__private__.last_error = null;
+
+        if (cb)
+            cb(err, result, this.__private__.resume_next);
+        else if (this.__private__.resume_next)
+            this.__private__.resume_next(err, result);
+    }
+
 
 }
 
 module.exports = RedisSuspend;
 
-let redis = require("redis");
+
+class MultiRedis {
+
+
+    constructor(client,  multi) {
+
+        Object.defineProperty(multi, "__private__", {
+            value: {},
+            enumerable: false
+        });
+
+        var self = multi.__private__;
+
+        self.client = client;
+        self.resume = client.__private__.resume;
+        self.resume_next = null;
+        self.last_error = null;
+
+
+        this.__setupMethods(multi,this);
 
 
 
-class MultiProxy {
-
-    constructor(parent,multi) {
-
-        this.target = {
-            parent: parent,
-            multi: multi,
-            resume: parent.target.resume,
-            resume_next: null
-        };
-
-        let target = this.target;
-
-        this.target.initHandleCallback = () => {
-            if (target.resume)
-                target.resume_next = target.resume();
-            else
-                target.resume_next = null;
-        };
-        this.target.handleCallback = (cb, ...args) => {
-            if (args!=null && args.length>=1 && args[0]!=null) {
-                target.last_error = args[0];
-            } else {
-                target.last_error = null;
-            }
-            if (cb)
-                cb(...args, target.resume_next);
-            else if (target.resume_next)
-                target.resume_next(...args);
-        };
-
-        this.handler = {
-            get: this._getHandler,
-            set: this._setHandler
-        };
-
-
-        return new Proxy(this.target,this.handler);
+        return multi;
     }
 
 
-    //-------------------------------------------------------
-    // Proxy Handlers
-    //-------------------------------------------------------
+    __mapperMethod(multi, functionRef, functionName, ...args) {
 
-    _getHandler(target,key) {
+        console.log("multi:"+functionName);
 
-        return (...args) => {
-            // console.log("key",key);
-            // console.log("Args",args);
+        if (functionName=="exec_batch" || functionName=="exec" || functionName=="EXEC") {
 
-            if (key=="exec") {
+            //console.log("...");
 
+            try {
+                this._initHandleCallback();
+            } catch (e) {
 
-                try {
-                    target.initHandleCallback();
-                } catch (err) {
+            }
 
-                }
+            let argLength = 0;
+            if (args != null) argLength = args.length;
 
-                let argLength = 0;
-                if (args != null) argLength = args.length;
+            let lastArgReplaced = false;
 
-                let lastArgReplaced = false;
-                /*
-                 Replace last arg if it is a function, and wrap it with our
-                 handleCallback so it may go through suspend.
-                 */
-                if (argLength >= 1) {
-                    let lastArg = args[argLength - 1];
-                    if (lastArg != null && typeof(lastArg) === "function") {
-                        lastArgReplaced = true;
-                        args[argLength - 1] = (...innerargs) => {
-                            target.handleCallback(lastArg, ...innerargs);
-                        }
+            if (argLength >= 1) {
+                let lastArg = args[argLength - 1];
+                if (lastArg != null && typeof(lastArg) === "function") {
+                    lastArgReplaced = true;
+                    args[argLength - 1] = (...innerargs) => {
+                        this._handleCallback(lastArg, ...innerargs);
                     }
                 }
-
-                //no cb replaced, so add one
-                if (!lastArgReplaced) {
-                    args.push((...innerargs) => {
-                        //  console.log("final cb");
-                        //  console.log("inner args",innerargs);
-                        target.handleCallback(null, ...innerargs);
-                    });
-                }
-
-                //console.log("final args",args);
             }
 
-            target.multi[key](...args);
+            if (!lastArgReplaced) {
+                args.push((...innerargs) => {
+                    this._handleCallback(null, ...innerargs);
+                });
+            }
 
-        };
+        }
+        functionRef.call(multi,...args);
+
+
     }
 
-    _setHandler(target,key,value) {
+    __setupMethods(multi,obj) {
 
-        target.multi[key] = value;
-        return true;
+
+        //copy methods from redis (client) class for wrapping
+        function setMapping(commandName) {
+            let functionRef = multi.__proto__[commandName];
+
+            if (functionRef==null) return;
+
+            let name = functionRef.name;
+            //console.log(name);
+
+            // internal_send_command
+            if (typeof(functionRef) == "function" && name.indexOf("internal")===-1) {
+                multi[commandName] = obj.__mapperMethod.bind(multi, multi, functionRef, name);
+                //console.log(name + " remapped");
+            }
+        }
+
+        //get command list from redis-commands module
+        for (let command of multiCommands) {
+            let commandName = command.replace(/(?:^([0-9])|[^a-zA-Z0-9_$])/g, '_$1');
+
+            setMapping(commandName);
+
+            commandName = commandName.toUpperCase();
+
+            setMapping(commandName);
+        }
+
+
+        //copy methods from our class
+        let arr2 = Object.getOwnPropertyNames(obj.__proto__);
+        for (let item of arr2) {
+            if (item != "constructor" && item.indexOf("__")!==0) {
+                multi[item] = obj[item];
+            }
+        }
+    }
+
+    _initHandleCallback() {
+        if (this.__private__.resume)
+            this.__private__.resume_next = this.__private__.resume();
+        else
+            this.__private__.resume_next = null;
+    }
+
+    _handleCallback(cb, err, result) {
+        if (err)
+            this.__private__.last_error = err;
+        else
+            this.__private__.last_error = null;
+
+        if (cb)
+            cb(err, result, this.__private__.resume_next);
+        else if (this.__private__.resume_next)
+            this.__private__.resume_next(err, result);
     }
 }
+
+
+let redis = require("redis");
+let commands = require('redis-commands');
+let multiCommands = ["exec_atomic","exec_transaction","exec"];
